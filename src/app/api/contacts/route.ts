@@ -1,10 +1,11 @@
-import { desc, eq, inArray, or, sql } from "drizzle-orm";
+import { desc, eq, inArray, isNull, or, sql } from "drizzle-orm";
 import { z } from "zod";
 import { apiError, parseBody, withAuth } from "@/lib/api";
 import { getDb, schema } from "@/lib/db";
 import { newId } from "@/lib/db/ids";
 import { scoped } from "@/lib/db/tenant";
 import { normalizeMx } from "@/lib/meta/client";
+import { normalizarOffset, normalizarTamanio } from "@/lib/paginacion";
 import { digitsOnly, normalizeText } from "@/lib/search";
 import { serializeContact } from "@/server/contacts";
 import { createLeadForContact } from "@/server/inbox/lead-activity";
@@ -70,42 +71,63 @@ export const GET = withAuth(async (session, req: Request) => {
       : undefined;
 
   // El filtro de etapa se aplica ANTES del límite: si no, un contacto de la
-  // etapa buscada podría quedar fuera por el corte de 200.
+  // etapa buscada podría quedar fuera por el corte de la página.
   const stageContactIds = stage
     ? leadStages.filter((r) => r.stageName === stage).map((r) => r.contactId)
     : null;
-  if (stageContactIds?.length === 0) return Response.json({ contacts: [] });
+  if (stageContactIds?.length === 0) {
+    return Response.json({ contacts: [], total: 0, limit: 50, offset: 0 });
+  }
 
-  const rows = await db
-    .select()
-    .from(schema.contact)
-    .where(
-      scoped(
-        schema.contact.organizationId,
-        session.organizationId,
-        search,
-        stageContactIds ? inArray(schema.contact.id, stageContactIds) : undefined,
-        // Contención de jsonb: solo hace falta que la etiqueta esté, no el
-        // arreglo completo. NULL (sin etiquetas) no casa con nada, que es lo
-        // que se espera.
-        tag
-          ? sql`${schema.contact.tags} @> ${JSON.stringify([tag])}::jsonb`
-          : undefined
-      )
+  // 067 — Paginación. Antes había un `limit(200)` fijo: con 2.800 contactos la
+  // lista enseñaba 200 y el resto era inalcanzable, sin decirlo. El tope se
+  // queda (200 por página) para que nadie pida 50.000 de golpe.
+  const limit = normalizarTamanio(url.searchParams.get("limit"));
+  const offset = normalizarOffset(url.searchParams.get("offset"));
+
+  // Los archivados se filtran en SQL y no en memoria: con paginación, filtrar
+  // después de cortar la página devolvería páginas vacías.
+  const condiciones = scoped(
+    schema.contact.organizationId,
+    session.organizationId,
+    includeArchived ? undefined : isNull(schema.contact.archivedAt),
+    search,
+    stageContactIds ? inArray(schema.contact.id, stageContactIds) : undefined,
+    // Contención de jsonb: solo hace falta que la etiqueta esté, no el
+    // arreglo completo. NULL (sin etiquetas) no casa con nada, que es lo
+    // que se espera.
+    tag ? sql`${schema.contact.tags} @> ${JSON.stringify([tag])}::jsonb` : undefined
+  );
+
+  // El total cuenta lo MISMO que la lista (mismos filtros): es lo que hace que
+  // el pie pueda decir «1–100 de 2.847» sin mentir.
+  const [filas, totalRes] = await Promise.all([
+    db
+      .select()
+      .from(schema.contact)
+      .where(condiciones)
+      .orderBy(desc(schema.contact.updatedAt))
+      .limit(limit)
+      .offset(offset),
+    db
+      .select({ n: sql<number>`count(*)::int` })
+      .from(schema.contact)
+      .where(condiciones),
+  ]);
+
+  const contacts = filas.map((c) =>
+    serializeContact(
+      c,
+      stageByContact.get(c.id) ?? null,
+      priorityByContact.get(c.id) ?? null
     )
-    .orderBy(desc(schema.contact.updatedAt))
-    .limit(200);
-
-  const contacts = rows
-    .filter((c) => includeArchived || !c.archivedAt)
-    .map((c) =>
-      serializeContact(
-        c,
-        stageByContact.get(c.id) ?? null,
-        priorityByContact.get(c.id) ?? null
-      )
-    );
-  return Response.json({ contacts });
+  );
+  return Response.json({
+    contacts,
+    total: totalRes[0]?.n ?? 0,
+    limit,
+    offset,
+  });
 });
 
 const createSchema = z.object({
