@@ -75,4 +75,4 @@ tiene ni conversación ni lead.
 - No hay multi-pipeline: sigue habiendo un solo embudo por organización.
 - Las etiquetas no se crean en un catálogo aparte: existen mientras alguien las
   tenga puestas.
-- No hay borrado masivo por etiqueta.
+- No hay borrado masivo por etiqueta. 
