@@ -32,6 +32,7 @@ import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
 import { FichaPanel } from "@/components/ficha-panel";
+import { TagsPanel } from "@/components/tags-panel";
 import { DeleteConversationDialog } from "./delete-conversation-dialog";
 
 
@@ -56,6 +57,8 @@ export function ContactPanel({
   const [confirmingDelete, setConfirmingDelete] = useState(false);
   const [notes, setNotes] = useState("");
   const [ficha, setFicha] = useState<FichaDto>({});
+  /** 067 — Etiquetas del contacto: se leen y se editan aquí mismo. */
+  const [tags, setTags] = useState<string[]>([]);
   const [notesLoaded, setNotesLoaded] = useState(false);
   const [savingNotes, setSavingNotes] = useState(false);
   const [stages, setStages] = useState<StageDto[]>([]);
@@ -97,6 +100,7 @@ export function ContactPanel({
     if (detail) {
       setNotes(detail.contact?.notes ?? "");
       setFicha(detail.contact?.ficha ?? {});
+      setTags(detail.contact?.tags ?? []);
       setCurrentStageId(detail.stage?.id ?? null);
       setLeadId(detail.lead?.id ?? null);
       setAnuncio(detail.anuncio ?? null);
@@ -117,6 +121,7 @@ export function ContactPanel({
       // conversación ocurre, y verla aparecer sola es justo para lo que sirve.
       // No pisa una edición a medias — el borrador vive dentro del panel.
       setFicha(detail.contact?.ficha ?? {});
+      setTags(detail.contact?.tags ?? []);
       setCurrentStageId(detail.stage?.id ?? null);
       setLeadId(detail.lead?.id ?? null);
       // La imagen del creativo se copia después de que entra el mensaje: este
@@ -367,6 +372,8 @@ export function ContactPanel({
 
         {/* Ficha: lo que se SABE del lead. Va antes de Notas —lo que alguien
             OPINA— porque es lo que se consulta a mitad de una conversación. */}
+        <TagsPanel contactId={contactId} tags={tags} onChange={setTags} />
+
         <FichaPanel ficha={ficha} onSave={saveFicha} />
 
         {/* Notas */}

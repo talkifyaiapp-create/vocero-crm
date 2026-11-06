@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Plus, X } from "lucide-react";
+import { X } from "lucide-react";
 import type { AnuncioDto, ContactDto, FichaDto, FichaValue } from "@/lib/types";
 import { formatPhone } from "@/lib/utils";
 import { ContactAvatar } from "@/components/avatar";
@@ -10,6 +10,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { FichaPanel } from "@/components/ficha-panel";
+import { TagsPanel } from "@/components/tags-panel";
 import { AnuncioOrigen } from "@/components/anuncio-origen";
 import { SOURCE_LABELS } from "@/server/contact-source";
 
@@ -36,13 +37,10 @@ type Detalle = {
  */
 export function ContactDetailDialog({
   contact,
-  sugerencias = [],
   onClose,
   onSaved,
 }: {
   contact: ContactDto;
-  /** Etiquetas que ya existen en la organización, para el autocompletado. */
-  sugerencias?: string[];
   onClose: () => void;
   /** Avisa al listado de que algo cambió. */
   onSaved: () => void;
@@ -53,7 +51,6 @@ export function ContactDetailDialog({
   const [aiPaused, setAiPaused] = useState(contact.aiPaused ?? false);
   const [tags, setTags] = useState<string[]>(contact.tags ?? []);
   const [ficha, setFicha] = useState<FichaDto>(contact.ficha ?? {});
-  const [nuevaTag, setNuevaTag] = useState("");
   const [guardando, setGuardando] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -74,31 +71,6 @@ export function ContactDetailDialog({
     };
   }, [contact.id]);
 
-  async function guardarTags(next: string[]) {
-    setTags(next);
-    setError(null);
-    const res = await fetch(`/api/contacts/${contact.id}`, {
-      method: "PATCH",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ tags: next }),
-    }).catch(() => null);
-    if (!res?.ok) {
-      setError("No se pudieron guardar las etiquetas.");
-      return;
-    }
-    onSaved();
-    void recargarEtiquetas();
-  }
-
-  /** Relee la ficha: el servidor fusiona y devuelve lo que quedó de verdad. */
-  async function recargarEtiquetas() {
-    const res = await fetch(`/api/contacts/${contact.id}`).catch(() => null);
-    if (!res?.ok) return;
-    const data = (await res.json()) as Detalle;
-    setTags(data.contact.tags ?? []);
-    if (data.contact.ficha) setFicha(data.contact.ficha);
-  }
-
   async function guardarFicha(patch: Record<string, FichaValue | null>) {
     const res = await fetch(`/api/contacts/${contact.id}`, {
       method: "PATCH",
@@ -112,17 +84,6 @@ export function ContactDetailDialog({
     const data = (await res.json()) as { contact?: ContactDto };
     if (data.contact?.ficha) setFicha(data.contact.ficha);
     onSaved();
-  }
-
-  function agregarTag() {
-    const limpia = nuevaTag.replace(/\s+/g, " ").trim();
-    if (!limpia) return;
-    if (tags.some((t) => t.toLowerCase() === limpia.toLowerCase())) {
-      setNuevaTag("");
-      return;
-    }
-    setNuevaTag("");
-    void guardarTags([...tags, limpia]);
   }
 
   async function guardar() {
@@ -193,74 +154,7 @@ export function ContactDetailDialog({
           </section>
         )}
 
-        <section className="border-b p-4">
-          <p className="kicker mb-2">Etiquetas</p>
-          <div className="flex flex-wrap items-center gap-1.5">
-            {tags.length === 0 && (
-              <p className="text-xs text-text-3">
-                Sin etiquetas. Sirven para agrupar por producto, cliente, ciudad…
-                sin tocar el embudo.
-              </p>
-            )}
-            {tags.map((t) => (
-              <span
-                key={t}
-                className="inline-flex items-center gap-1 rounded-full border bg-secondary px-2 py-0.5 text-xs"
-              >
-                {t}
-                <button
-                  type="button"
-                  aria-label={`Quitar la etiqueta ${t}`}
-                  onClick={() => void guardarTags(tags.filter((x) => x !== t))}
-                  className="rounded-full p-0.5 text-text-3 hover:text-danger"
-                >
-                  <X className="h-3 w-3" />
-                </button>
-              </span>
-            ))}
-          </div>
-          <div className="mt-2 flex gap-1.5">
-            <Input
-              list={`tags-${contact.id}`}
-              value={nuevaTag}
-              onChange={(e) => setNuevaTag(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === "Enter") {
-                  e.preventDefault();
-                  agregarTag();
-                }
-              }}
-              placeholder="Añadir etiqueta…"
-              aria-label="Nueva etiqueta"
-              className="h-8 text-xs"
-            />
-            <datalist id={`tags-${contact.id}`}>
-              {sugerencias
-                .filter((s) => !tags.some((t) => t.toLowerCase() === s.toLowerCase()))
-                .map((s) => (
-                  <option key={s} value={s} />
-                ))}
-            </datalist>
-            <Button
-              type="button"
-              size="sm"
-              variant="secondary"
-              onClick={agregarTag}
-              disabled={!nuevaTag.trim()}
-              className="shrink-0"
-            >
-              <Plus className="h-3.5 w-3.5" />
-              Añadir
-            </Button>
-          </div>
-          {/* 067 — Se crean al usarlas: no hay un catálogo aparte que mantener, y
-              esconder eso hacía pensar que no se podían crear desde aquí. */}
-          <p className="mt-1.5 text-[11px] leading-relaxed text-text-3">
-            Escribe la etiqueta y pulsa Enter. Se crea al usarla: no hay un
-            catálogo aparte.
-            {sugerencias.length > 0 && " Al escribir verás las que ya existen."}
-          </p>
-        </section>
+        <TagsPanel contactId={contact.id} tags={tags} onChange={setTags} />
 
         <FichaPanel ficha={ficha} onSave={guardarFicha} />
 

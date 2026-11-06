@@ -15,6 +15,7 @@ import { cn, formatPhone } from "@/lib/utils";
 import { AnuncioOrigen } from "@/components/anuncio-origen";
 import { ContactAvatar } from "@/components/avatar";
 import { FichaPanel } from "@/components/ficha-panel";
+import { TagsPanel } from "@/components/tags-panel";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { PriorityPicker } from "./priority-picker";
@@ -48,6 +49,8 @@ export function LeadDrawer({
   onPriority: (value: PriorityValue | null) => void;
 }) {
   const [ficha, setFicha] = useState<FichaDto>({});
+  /** 067 — Etiquetas del contacto: se leen y se editan aquí mismo. */
+  const [tags, setTags] = useState<string[]>([]);
   // 018: de qué anuncio llegó; null si escribió por su cuenta.
   const [anuncio, setAnuncio] = useState<AnuncioDto | null>(null);
   const [monto, setMonto] = useState("");
@@ -61,6 +64,7 @@ export function LeadDrawer({
       .then((r) => (r.ok ? r.json() : null))
       .catch(() => null);
     setFicha(detail?.contact?.ficha ?? {});
+    setTags(detail?.contact?.tags ?? []);
     setAnuncio(detail?.anuncio ?? null);
   }, [contactId]);
 
@@ -273,6 +277,8 @@ export function LeadDrawer({
           </section>
 
           {/* Qué se sabe */}
+          <TagsPanel contactId={contactId} tags={tags} onChange={setTags} />
+
           <FichaPanel ficha={ficha} onSave={guardarFicha} />
         </div>
       </aside>

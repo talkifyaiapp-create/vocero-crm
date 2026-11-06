@@ -320,7 +320,6 @@ export function ContactsClient() {
       {editing && (
         <ContactDetailDialog
           contact={editing}
-          sugerencias={tagsDisponibles}
           onClose={() => setEditing(null)}
           onSaved={() => {
             void refetch();
