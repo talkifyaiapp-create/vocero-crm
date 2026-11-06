@@ -7,6 +7,8 @@ export type ConversationDto = {
   /** 014: canal de la conversacion, para el distintivo de la bandeja. */
   channel: Channel;
   contact: { id: string; name: string; phone: string | null };
+  /** 067 — Etiquetas del contacto, para filtrar la Bandeja por ellas. */
+  tags: string[];
   stageName: string | null;
   aiEnabled: boolean;
   handoffAt: string | null;
