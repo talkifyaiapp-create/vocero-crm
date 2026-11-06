@@ -322,6 +322,12 @@ export function ContactPanel({
               <AnuncioOrigen anuncio={anuncio} />
             </div>
           )}
+
+          {/* 067 — Lo que cuesta (o no) seguir hablando. La ventana de atención
+              de 24 h no cambia: esto solo dice cuándo Meta deja de cobrar. */}
+          {anuncio && conversation.ventanaGratuita && (
+            <NotaVentanaGratuita ventana={conversation.ventanaGratuita} />
+          )}
         </section>
 
         {/* Stepper de etapa */}
@@ -421,5 +427,63 @@ export function ContactPanel({
         />
       )}
     </div>
+  );
+}
+
+/**
+ * 067 — La ventana gratuita de una conversación de anuncio.
+ *
+ * Es informativa y nada más: no habilita ni bloquea el envío, que sigue rigiéndose
+ * por la ventana de atención de 24 h. Existe porque el dato que casi nadie mira
+ * es que **la gratuidad solo se abre si se contesta en las primeras 24 h**, y
+ * perderla cuesta dinero.
+ */
+function NotaVentanaGratuita({
+  ventana,
+}: {
+  ventana: NonNullable<ConversationDto["ventanaGratuita"]>;
+}) {
+  const limite = ventana.limite ? new Date(ventana.limite) : null;
+  const cuando = limite
+    ? limite.toLocaleString("es-CO", {
+        day: "numeric",
+        month: "short",
+        hour: "2-digit",
+        minute: "2-digit",
+      })
+    : "";
+
+  const horasRestantes = limite
+    ? (limite.getTime() - Date.now()) / (60 * 60 * 1000)
+    : 0;
+  // Con menos de 2 h el plazo aprieta: se avisa con el tono de advertencia.
+  const urge = ventana.estado === "por_abrir" && horasRestantes <= 2;
+
+  const clases = urge
+    ? "border-warning-soft bg-warning-tint text-warning-text"
+    : ventana.estado === "abierta"
+      ? "border-success-soft bg-success-tint text-success-text"
+      : "border bg-subtle text-text-3";
+
+  const texto =
+    ventana.estado === "por_abrir"
+      ? `Responde antes de las ${cuando} para abrir 7 días de mensajería gratis.`
+      : ventana.estado === "abierta"
+        ? `Mensajería gratis hasta el ${cuando}.`
+        : ventana.estado === "expirada"
+          ? `La ventana gratuita terminó el ${cuando}.`
+          : "Sin ventana gratuita: no se respondió dentro de las 24 h.";
+
+  return (
+    <p
+      className={`mt-2 rounded-md border px-2.5 py-1.5 text-[11.5px] leading-snug ${clases}`}
+    >
+      {texto}
+      <span className="opacity-70">
+        {" "}
+        Estimado según las reglas publicadas, y asume que el clic vino de la app
+        móvil (Meta no manda ese dato).
+      </span>
+    </p>
   );
 }

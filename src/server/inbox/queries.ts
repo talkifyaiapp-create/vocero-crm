@@ -3,7 +3,15 @@ import { getDb, schema } from "@/lib/db";
 import { scoped } from "@/lib/db/tenant";
 import { isWindowOpen, replyWindow, windowRemainingMs } from "@/server/inbox/window";
 import { capabilitiesFor, windowMsFor } from "@/server/channels/capabilities";
+import { ventanaGratuita } from "@/lib/ventana-gratuita";
 import type { ConversationDto } from "@/lib/types";
+
+/** Lo que devuelve `min(created_at)`: el driver puede dar Date o texto. */
+function aFecha(v: string | Date | null): Date | null {
+  if (!v) return null;
+  const d = v instanceof Date ? v : new Date(v);
+  return Number.isNaN(d.getTime()) ? null : d;
+}
 
 /**
  * 018 — El anuncio de origen viaja con la conversación. La llave única
@@ -62,6 +70,20 @@ export async function listConversations(
     limit 1
   )`;
 
+  /**
+   * 067 — Para la ventana gratuita: cuándo escribió el cliente por primera vez y
+   * cuándo se le contestó por primera vez. Con el índice
+   * (organización, conversación, fecha) que ya existe, es barato.
+   */
+  const primerEntranteSql = sql<string | null>`(
+    select min(m.created_at) from message m
+    where m.conversation_id = ${schema.conversation.id} and m.direction = 'inbound'
+  )`;
+  const primerSalienteSql = sql<string | null>`(
+    select min(m.created_at) from message m
+    where m.conversation_id = ${schema.conversation.id} and m.direction = 'outbound'
+  )`;
+
   const rows = await db
     .select({
       conversation: schema.conversation,
@@ -69,6 +91,8 @@ export async function listConversations(
       preview: previewSql,
       stageName: stageSql,
       anuncio: anuncioDeLista,
+      primerEntrante: primerEntranteSql,
+      primerSaliente: primerSalienteSql,
     })
     .from(schema.conversation)
     .innerJoin(
@@ -92,7 +116,8 @@ export async function listConversations(
       r.contact,
       r.preview,
       r.stageName,
-      aAnuncioDeLista(r.anuncio)
+      aAnuncioDeLista(r.anuncio),
+      { primerEntrante: r.primerEntrante, primerSaliente: r.primerSaliente }
     )
   );
 }
@@ -155,9 +180,21 @@ export function serializeConversation(
   contact: typeof schema.contact.$inferSelect,
   preview: string | null = null,
   stageName: string | null = null,
-  anuncio: ConversationDto["anuncio"] = null
+  anuncio: ConversationDto["anuncio"] = null,
+  /** 067 — Primer mensaje del cliente y primera respuesta, para el costo. */
+  mensajes: { primerEntrante: string | null; primerSaliente: string | null } | null = null
 ): ConversationDto {
   const caps = capabilitiesFor(c.channel);
+  // 067 — Ventana gratuita: solo tiene sentido en una conversación que nació de
+  // un anuncio. Se calcula aquí, con la hora del SERVIDOR: el reloj del
+  // navegador no decide si la ventana está abierta.
+  const ventana = mensajes
+    ? ventanaGratuita({
+        llegoPorAnuncio: anuncio !== null,
+        primerEntrante: aFecha(mensajes.primerEntrante),
+        primerSaliente: aFecha(mensajes.primerSaliente),
+      })
+    : null;
   // 024: la extensión humana solo existe en los canales que la declaran.
   const reply =
     caps.humanAgentWindowMs !== null
@@ -171,6 +208,14 @@ export function serializeConversation(
     // Bandeja por ellas sin una petición más por hilo.
     tags: (contact.tags as string[] | null) ?? [],
     stageName,
+    // 067 — Solo se manda cuando hay algo que contar (`no_aplica` viaja null).
+    ventanaGratuita:
+      ventana && ventana.estado !== "no_aplica"
+        ? {
+            estado: ventana.estado,
+            limite: ventana.limite?.toISOString() ?? null,
+          }
+        : null,
     aiEnabled: c.aiEnabled,
     handoffAt: c.handoffAt?.toISOString() ?? null,
     handoffReason: c.handoffReason,
