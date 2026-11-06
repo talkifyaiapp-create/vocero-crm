@@ -1,4 +1,4 @@
-import { eq } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
 import { getDb, schema } from "@/lib/db";
 import { scoped } from "@/lib/db/tenant";
 
@@ -120,9 +120,51 @@ export async function upsertFicha(input: {
 }
 
 /**
- * 026 — Vacía la ficha entera. Solo para cuando se elimina la conversación de
- * la que salió (`server/inbox/eliminar.ts`): la ficha es lo que el agente fue
- * aprendiendo, y viaja al cerebro en cada turno.
+ * 067 — La misma puerta, en lote, para la importación de contactos.
+ *
+ * Un CSV de 2.000 renglones no puede pagar un `SELECT` + `UPDATE` por contacto
+ * como `upsertFicha`. Aun así la fusión es EXACTAMENTE la misma: el `||` de
+ * jsonb conserva lo ausente y sobrescribe solo las claves que llegan, así que
+ * el agente puede estar escribiendo en la ficha mientras el dueño importa.
+ *
+ * El `scoped` va aquí dentro y no en quien llama, por la misma razón que en
+ * `upsertFicha`: no se confía en que el llamador se acuerde de filtrar.
+ *
+ * Devuelve cuántas fichas se tocaron de verdad.
+ */
+export async function mergeFichaEnLote(input: {
+  organizationId: string;
+  items: { contactId: string; ficha: FichaInput }[];
+}): Promise<number> {
+  const db = getDb();
+  let escritas = 0;
+  for (const item of input.items) {
+    const patch = normalizeFicha(item.ficha);
+    if (Object.keys(patch).length === 0) continue;
+    await db
+      .update(schema.contact)
+      .set({
+        ficha: sql`coalesce(${schema.contact.ficha}, '{}'::jsonb) || ${JSON.stringify(
+          patch
+        )}::jsonb`,
+        updatedAt: new Date(),
+      })
+      .where(
+        scoped(
+          schema.contact.organizationId,
+          input.organizationId,
+          eq(schema.contact.id, item.contactId)
+        )
+      );
+    escritas++;
+  }
+  return escritas;
+}
+
+/**
+ * 026 — Vacía la ficha entera. Solo para cuando se elimina la conversación
+ * de la que salió (`server/inbox/eliminar.ts`): la ficha es lo que el agente
+ * fue aprendiendo, y viaja al cerebro en cada turno.
  *
  * Recibe el ejecutor para correr DENTRO de la transacción del borrado: vaciar
  * la ficha de un hilo que al final no se borró sería perder datos por nada.

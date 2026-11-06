@@ -12,6 +12,11 @@ import { upsertFicha } from "@/server/bot/ficha";
 import { pauseConversations } from "@/server/contacts-import";
 import { cuentaComoAnuncio } from "@/lib/anuncios";
 import {
+  MAX_TAGS_PER_ROW,
+  MAX_TAG_LEN,
+  mergeTags,
+} from "@/lib/contact-import";
+import {
   anuncioDelContacto,
   repararImagenSiFalta,
 } from "@/server/attribution/store";
@@ -61,6 +66,12 @@ const patchSchema = z.object({
    * borrara lo recién descubierto al otro.
    */
   ficha: z.record(z.string(), z.unknown()).optional(),
+  /**
+   * 067 — Etiquetas del contacto. Reemplaza la lista COMPLETA: es lo que la
+   * ventana del contacto manda al guardar, y así quitar una etiqueta es tan
+   * posible como ponerla. La importación, en cambio, siempre suma (mergeTags).
+   */
+  tags: z.array(z.string().max(MAX_TAG_LEN)).max(MAX_TAGS_PER_ROW).optional(),
 });
 
 export const PATCH = withAuth(async (session, req: Request, ctx: Params) => {
@@ -91,6 +102,9 @@ export const PATCH = withAuth(async (session, req: Request, ctx: Params) => {
     set.archivedAt = body.data.archived ? new Date() : null;
   }
   if (body.data.aiPaused !== undefined) set.aiPaused = body.data.aiPaused;
+  // 067: guardar la lista entera tal como quedó en la ventana. Sin repetir y
+  // sin distinguir mayúsculas, igual que al importar.
+  if (body.data.tags !== undefined) set.tags = mergeTags([], body.data.tags);
 
   const db = getDb();
   const updated = await db

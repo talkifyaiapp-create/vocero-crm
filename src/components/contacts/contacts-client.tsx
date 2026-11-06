@@ -7,6 +7,7 @@ import {
   Archive,
   ArchiveRestore,
   BotOff,
+  Download,
   MessageSquareText,
   Search,
   Send,
@@ -18,13 +19,13 @@ import type { ContactDto } from "@/lib/types";
 import { formatPhone } from "@/lib/utils";
 import { ContactAvatar } from "@/components/avatar";
 import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
+import { Button, buttonVariants } from "@/components/ui/button";
 import { EmptyState } from "@/components/ui/empty-state";
 import { Input } from "@/components/ui/input";
-import { Textarea } from "@/components/ui/textarea";
 import { SOURCE_LABELS } from "@/server/contact-source";
 import { priorityRank } from "@/server/leads/priority";
 import { PriorityBadge } from "@/components/pipeline/priority-picker";
+import { ContactDetailDialog } from "./contact-detail-dialog";
 import { ImportContactsDialog } from "./import-contacts-dialog";
 import { NewContactDialog } from "./new-contact-dialog";
 import { StartConversation } from "./start-conversation";
@@ -35,6 +36,9 @@ export function ContactsClient() {
   const [query, setQuery] = useState("");
   const [stage, setStage] = useState("all");
   const [stages, setStages] = useState<string[]>([]);
+  /** 067 — Filtro por etiqueta: la segunda dimensión junto a la etapa. */
+  const [tagFilter, setTagFilter] = useState("all");
+  const [tagsDisponibles, setTagsDisponibles] = useState<string[]>([]);
   const [showArchived, setShowArchived] = useState(false);
   const [editing, setEditing] = useState<ContactDto | null>(null);
   const [creando, setCreando] = useState(false);
@@ -58,10 +62,23 @@ export function ContactsClient() {
     })();
   }, []);
 
+  // 067 — Las etiquetas que existen hoy, para el filtro y el autocompletado.
+  const cargarEtiquetas = useCallback(async () => {
+    const res = await fetch("/api/contacts/tags").catch(() => null);
+    if (!res?.ok) return;
+    const data = (await res.json()) as { tags: string[] };
+    setTagsDisponibles(data.tags);
+  }, []);
+
+  useEffect(() => {
+    void cargarEtiquetas();
+  }, [cargarEtiquetas]);
+
   const refetch = useCallback(async () => {
     const params = new URLSearchParams();
     if (query.trim()) params.set("q", query.trim());
     if (stage !== "all") params.set("stage", stage);
+    if (tagFilter !== "all") params.set("tag", tagFilter);
     if (showArchived) params.set("archived", "true");
     const res = await fetch(`/api/contacts?${params}`).catch(() => null);
     if (!res?.ok) return;
@@ -74,7 +91,7 @@ export function ContactsClient() {
         (a, b) => priorityRank(a.priority ?? null) - priorityRank(b.priority ?? null)
       )
     );
-  }, [query, stage, showArchived]);
+  }, [query, stage, tagFilter, showArchived]);
 
   useEffect(() => {
     const t = setTimeout(() => void refetch(), 250);
@@ -90,6 +107,14 @@ export function ContactsClient() {
     void refetch();
   }
 
+  // El export respeta los mismos filtros que la pantalla: bajar "todo" cuando
+  // se está mirando una etiqueta sería una sorpresa desagradable.
+  const exportParams = new URLSearchParams();
+  if (stage !== "all") exportParams.set("stage", stage);
+  if (tagFilter !== "all") exportParams.set("tag", tagFilter);
+  if (showArchived) exportParams.set("archived", "true");
+  const exportHref = `/api/contacts/export?${exportParams.toString()}`;
+
   return (
     <div className="flex h-full flex-col">
       <header className="flex flex-wrap items-center justify-between gap-3 border-b px-4 py-3 sm:gap-4 sm:px-6 sm:py-4">
@@ -103,6 +128,15 @@ export function ContactsClient() {
             <Upload className="mr-1.5 h-4 w-4" strokeWidth={1.8} />
             Importar
           </Button>
+          {/* 067 — Un enlace y no un botón: descarga, no navega. */}
+          <a
+            href={exportHref}
+            download
+            className={buttonVariants({ variant: "secondary", size: "sm" })}
+          >
+            <Download className="mr-1.5 h-4 w-4" strokeWidth={1.8} />
+            Exportar CSV
+          </a>
         </div>
         <div className="flex w-full flex-wrap items-center gap-2 sm:w-auto sm:gap-3">
           <label className="flex items-center gap-2 text-xs text-muted-foreground">
@@ -129,6 +163,21 @@ export function ContactsClient() {
               ))}
             </select>
           )}
+          {tagsDisponibles.length > 0 && (
+            <select
+              value={tagFilter}
+              onChange={(e) => setTagFilter(e.target.value)}
+              aria-label="Filtrar por etiqueta"
+              className="h-9 rounded-md border border-input bg-card px-2 text-sm"
+            >
+              <option value="all">Toda etiqueta</option>
+              {tagsDisponibles.map((t) => (
+                <option key={t} value={t}>
+                  {t}
+                </option>
+              ))}
+            </select>
+          )}
           <div className="relative w-full sm:w-auto">
             <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
             <Input
@@ -145,7 +194,7 @@ export function ContactsClient() {
 
       <div className="flex-1 overflow-y-auto p-4 sm:p-6">
         {contacts.length === 0 ? (
-          query.trim() || stage !== "all" ? (
+          query.trim() || stage !== "all" || tagFilter !== "all" ? (
             <EmptyState
               icon={Search}
               className="h-full"
@@ -154,8 +203,10 @@ export function ContactsClient() {
                 <>
                   Nadie coincide con
                   {query.trim() ? ` «${query.trim()}»` : ""}
-                  {query.trim() && stage !== "all" ? " en" : ""}
-                  {stage !== "all" ? ` la etapa «${stage}»` : ""}.
+                  {(query.trim() && (stage !== "all" || tagFilter !== "all")) ? " en" : ""}
+                  {stage !== "all" ? ` la etapa «${stage}»` : ""}
+                  {stage !== "all" && tagFilter !== "all" ? " ni" : ""}
+                  {tagFilter !== "all" ? ` la etiqueta «${tagFilter}»` : ""}.
                 </>
               }
             />
@@ -206,6 +257,17 @@ export function ContactsClient() {
                         {SOURCE_LABELS[c.source.value]}
                       </Badge>
                     )}
+                    {/* 067 — Las tres primeras: la fila es una lista, no una ficha. */}
+                    {c.tags?.slice(0, 3).map((t) => (
+                      <Badge key={t} variant="outline">
+                        {t}
+                      </Badge>
+                    ))}
+                    {(c.tags?.length ?? 0) > 3 && (
+                      <span className="text-[11px] text-text-3">
+                        +{(c.tags?.length ?? 0) - 3}
+                      </span>
+                    )}
                   </div>
                   <p className="text-xs text-muted-foreground">
                     {formatPhone(c.phone)}
@@ -218,7 +280,7 @@ export function ContactsClient() {
                     size="sm"
                     onClick={() => setEditing(c)}
                   >
-                    Editar
+                    Abrir
                   </Button>
                   {/* A quien nunca escribió hay que abrirle la conversación con
                       una plantilla: es regla de Meta, no del CRM. */}
@@ -256,12 +318,13 @@ export function ContactsClient() {
       </div>
 
       {editing && (
-        <EditDialog
+        <ContactDetailDialog
           contact={editing}
+          sugerencias={tagsDisponibles}
           onClose={() => setEditing(null)}
-          onSave={async (patchBody) => {
-            await patch(editing.id, patchBody);
-            setEditing(null);
+          onSaved={() => {
+            void refetch();
+            void cargarEtiquetas();
           }}
         />
       )}
@@ -299,7 +362,11 @@ export function ContactsClient() {
       {importando && (
         <ImportContactsDialog
           onClose={() => setImportando(false)}
-          onImported={() => void refetch()}
+          onImported={() => {
+            void refetch();
+            // Las etiquetas del archivo entran al filtro sin recargar la página.
+            void cargarEtiquetas();
+          }}
         />
       )}
 
@@ -316,91 +383,6 @@ export function ContactsClient() {
           }}
         />
       )}
-    </div>
-  );
-}
-
-function EditDialog({
-  contact,
-  onClose,
-  onSave,
-}: {
-  contact: ContactDto;
-  onClose: () => void;
-  onSave: (patch: { name: string; notes: string; aiPaused?: boolean }) => Promise<void>;
-}) {
-  const [name, setName] = useState(contact.name);
-  const [notes, setNotes] = useState(contact.notes ?? "");
-  const [aiPaused, setAiPaused] = useState(contact.aiPaused ?? false);
-
-  return (
-    <div
-      className="fixed inset-0 z-50 flex items-center justify-center overflow-y-auto bg-overlay p-4"
-      onClick={onClose}
-    >
-      <div
-        className="max-h-[85dvh] w-full max-w-md overflow-y-auto rounded-lg border bg-popover p-5 shadow-xl"
-        onClick={(e) => e.stopPropagation()}
-      >
-        <h3 className="mb-4 font-semibold">Editar contacto</h3>
-        <div className="space-y-3">
-          <div className="space-y-1.5">
-            <label className="text-sm font-medium" htmlFor="edit-name">
-              Nombre
-            </label>
-            <Input
-              id="edit-name"
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-            />
-          </div>
-          <div className="space-y-1.5">
-            <label className="text-sm font-medium" htmlFor="edit-notes">
-              Notas
-            </label>
-            <Textarea
-              id="edit-notes"
-              rows={4}
-              value={notes}
-              onChange={(e) => setNotes(e.target.value)}
-            />
-          </div>
-          {/* 027 */}
-          <label className="flex items-start gap-2 text-sm">
-            <input
-              type="checkbox"
-              checked={aiPaused}
-              onChange={(e) => setAiPaused(e.target.checked)}
-              className="mt-0.5 accent-primary"
-            />
-            <span>
-              El agente no le responde
-              <span className="block text-[11px] text-text-3">
-                Sus mensajes llegan a la Bandeja y los atiendes tú.
-              </span>
-            </span>
-          </label>
-        </div>
-        <div className="mt-4 flex justify-end gap-2">
-          <Button variant="ghost" onClick={onClose}>
-            Cancelar
-          </Button>
-          <Button
-            disabled={!name.trim()}
-            onClick={() =>
-              void onSave({
-                name: name.trim(),
-                notes,
-                // Solo si cambió: mandarlo siempre reescribiría el interruptor
-                // de la Bandeja cada vez que alguien corrige un nombre.
-                ...(aiPaused !== (contact.aiPaused ?? false) ? { aiPaused } : {}),
-              })
-            }
-          >
-            Guardar
-          </Button>
-        </div>
-      </div>
     </div>
   );
 }
