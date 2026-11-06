@@ -167,6 +167,9 @@ export function serializeConversation(
     id: c.id,
     channel: c.channel,
     contact: { id: contact.id, name: contact.name, phone: contact.phone },
+    // 067 — Las etiquetas viajan con la conversación para poder filtrar la
+    // Bandeja por ellas sin una petición más por hilo.
+    tags: (contact.tags as string[] | null) ?? [],
     stageName,
     aiEnabled: c.aiEnabled,
     handoffAt: c.handoffAt?.toISOString() ?? null,

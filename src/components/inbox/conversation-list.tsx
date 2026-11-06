@@ -119,6 +119,8 @@ export function ConversationList({
     };
   }, [menuFiltros]);
   const [stage, setStage] = useState<string>("all");
+  /** 067 — Filtro por etiqueta del contacto, junto al de etapa. */
+  const [tag, setTag] = useState<string>("all");
   const [inbox, setInbox] = useState<Channel | "all">("all");
   const inputRef = useRef<HTMLInputElement>(null);
   // 055 · D3 — Alt+J / Alt+K recorren la lista en el orden que se ve (con los
@@ -177,7 +179,10 @@ export function ConversationList({
       matchesQuery(query, {
         text: [c.contact.name],
         phone: c.contact.phone,
-      }) && (stage === "all" || c.stageName === stage)
+      }) && (stage === "all" || c.stageName === stage) &&
+      // 067 — La etiqueta es del contacto; la conversación la trae para poder
+      // filtrar aquí sin una petición por hilo.
+      (tag === "all" || (c.tags ?? []).includes(tag))
   );
   // La bandeja elegida es el filtro de AFUERA: "Todas" y "No leídas" cuentan
   // dentro de ella, no sobre la suma de los dos canales.
@@ -201,9 +206,14 @@ export function ConversationList({
     { id: "all", label: "Todas", count: filtrado.length },
     { id: "unread", label: "No leídas", count: unreadCount },
   ];
-  const nFiltros = (stage !== "all" ? 1 : 0) + (soloPorVencer ? 1 : 0) + (soloAnuncios ? 1 : 0);
+  const nFiltros =
+    (stage !== "all" ? 1 : 0) +
+    (tag !== "all" ? 1 : 0) +
+    (soloPorVencer ? 1 : 0) +
+    (soloAnuncios ? 1 : 0);
   function limpiarFiltros() {
     setStage("all");
+    setTag("all");
     setSoloPorVencer(false);
     setSoloAnuncios(false);
   }
@@ -216,6 +226,18 @@ export function ConversationList({
   for (const c of conversations) {
     if (c.stageName && !stages.includes(c.stageName)) stages.push(c.stageName);
   }
+  // 067 — Igual con las etiquetas, pero sin distinguir mayúsculas.
+  const tags: string[] = [];
+  const tagsVistas = new Set<string>();
+  for (const c of conversations) {
+    for (const t of c.tags ?? []) {
+      const clave = t.toLowerCase();
+      if (tagsVistas.has(clave)) continue;
+      tagsVistas.add(clave);
+      tags.push(t);
+    }
+  }
+  tags.sort((a, b) => a.localeCompare(b, "es"));
 
   function clearQuery() {
     if (inputRef.current) inputRef.current.value = "";
@@ -358,6 +380,28 @@ export function ConversationList({
                     </select>
                   </label>
                 )}
+                {/* 067 — La segunda dimensión: qué es la persona, no dónde está. */}
+                {tags.length > 0 && (
+                  <label className="block space-y-1">
+                    <span className="kicker text-text-3">Etiqueta</span>
+                    <select
+                      value={tag}
+                      onChange={(e) => setTag(e.target.value)}
+                      aria-label="Filtrar por etiqueta"
+                      className={cn(
+                        "w-full rounded-md border border-border-strong bg-background px-2 py-1.5 text-[13px]",
+                        FOCO_SEPARADO
+                      )}
+                    >
+                      <option value="all">Toda etiqueta</option>
+                      {tags.map((t) => (
+                        <option key={t} value={t}>
+                          {t}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                )}
                 {/* Como antes: sin ninguna, la casilla no aparece (salvo que esté marcada). */}
                 {(venciendo.length > 0 || soloPorVencer) && (
                   <label className="flex cursor-pointer items-center gap-2 text-[13px]">
@@ -404,6 +448,9 @@ export function ConversationList({
           <div className="flex flex-wrap gap-1.5 pb-2.5">
             {stage !== "all" && (
               <FiltroPuesto texto={`Etapa: ${stage}`} onQuitar={() => setStage("all")} />
+            )}
+            {tag !== "all" && (
+              <FiltroPuesto texto={`Etiqueta: ${tag}`} onQuitar={() => setTag("all")} />
             )}
             {soloPorVencer && (
               <FiltroPuesto texto="Por vencer" onQuitar={() => setSoloPorVencer(false)} />
