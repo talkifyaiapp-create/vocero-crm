@@ -11,13 +11,24 @@ import { formatPhone } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 
 type Preview = { valid: ImportRow[]; problems: ImportProblem[]; total: number };
-type Result = { created: number; existing: number; paused: number };
+type Result = {
+  created: number;
+  existing: number;
+  paused: number;
+  updated: number;
+  tagged: number;
+  leads: number;
+};
 
 /**
  * Importar una lista que ya existe en otro lado (clientes, miembros de una
  * comunidad, un export de contactos). El archivo se lee en el navegador para
  * enseñar qué va a entrar ANTES de escribir nada: un CSV mal armado se
  * descubre en la vista previa, no con doscientos contactos basura creados.
+ *
+ * 067 — Entiende columnas opcionales de email, etiquetas y atribución, y deja
+ * decidir si los importados entran al embudo (apagado por defecto: una lista de
+ * clientes no es un embudo).
  */
 export function ImportContactsDialog({
   onClose,
@@ -29,6 +40,7 @@ export function ImportContactsDialog({
   const [fileName, setFileName] = useState("");
   const [preview, setPreview] = useState<Preview | null>(null);
   const [aiPaused, setAiPaused] = useState(false);
+  const [crearLeads, setCrearLeads] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [result, setResult] = useState<Result | null>(null);
@@ -54,7 +66,11 @@ export function ImportContactsDialog({
     const res = await fetch("/api/contacts/import", {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ contacts: preview.valid, aiPaused }),
+      body: JSON.stringify({
+        contacts: preview.valid,
+        aiPaused,
+        createLeads: crearLeads,
+      }),
     }).catch(() => null);
     setSaving(false);
     const data = (await res?.json().catch(() => null)) as
@@ -64,9 +80,19 @@ export function ImportContactsDialog({
       setError(data?.error?.message ?? "No se pudo importar. Revisa tu conexión.");
       return;
     }
-    setResult({ created: data.created, existing: data.existing, paused: data.paused });
+    setResult({
+      created: data.created,
+      existing: data.existing,
+      paused: data.paused,
+      updated: data.updated,
+      tagged: data.tagged,
+      leads: data.leads,
+    });
     onImported();
   }
+
+  /** Cuántos renglones traen etiquetas: lo que de verdad cambia con este cambio. */
+  const conEtiquetas = preview?.valid.filter((r) => (r.tags?.length ?? 0) > 0).length ?? 0;
 
   return (
     <div
@@ -84,7 +110,13 @@ export function ImportContactsDialog({
           Un archivo CSV con una columna <strong>nombre</strong> y una{" "}
           <strong>telefono</strong> en el primer renglón. El teléfono va con
           código de país (52 para México). A quien ya exista no se le duplica ni
-          se le cambia el nombre.
+          se le cambia el nombre: se le suman sus etiquetas.
+        </p>
+        <p className="mb-4 text-xs text-text-3">
+          Opcionales: <strong>email</strong>, <strong>tags</strong>,{" "}
+          <strong>source</strong>, <strong>source_url</strong> y{" "}
+          <strong>source_id</strong>. Se guardan en la ficha del contacto y se
+          ven en su ventana.
         </p>
 
         {result ? (
@@ -101,6 +133,18 @@ export function ImportContactsDialog({
               )}
               .
             </p>
+            {result.tagged > 0 && (
+              <p>
+                A <strong>{result.tagged}</strong> se les sumaron etiquetas.
+              </p>
+            )}
+            {result.leads > 0 && (
+              <p>
+                <strong>{result.leads}</strong>{" "}
+                {result.leads === 1 ? "entró" : "entraron"} al embudo en la
+                primera etapa.
+              </p>
+            )}
             {result.paused > 0 && (
               <p>
                 El agente quedó apagado para <strong>{result.paused}</strong>.
@@ -123,6 +167,14 @@ export function ImportContactsDialog({
                   <strong>{preview.valid.length}</strong> de {preview.total}{" "}
                   renglones de <span className="text-text-3">{fileName}</span>{" "}
                   se pueden importar.
+                  {conEtiquetas > 0 && (
+                    <>
+                      {" "}
+                      <span className="text-text-3">
+                        {conEtiquetas} con etiquetas.
+                      </span>
+                    </>
+                  )}
                 </p>
 
                 {preview.valid.length > 0 && (
@@ -132,7 +184,14 @@ export function ImportContactsDialog({
                         key={r.phone}
                         className="flex justify-between gap-3 border-b px-3 py-1.5 last:border-b-0"
                       >
-                        <span className="truncate">{r.name}</span>
+                        <span className="min-w-0 truncate">
+                          {r.name}
+                          {r.tags && r.tags.length > 0 && (
+                            <span className="ml-2 text-text-3">
+                              {r.tags.join(", ")}
+                            </span>
+                          )}
+                        </span>
                         <span className="shrink-0 text-text-3">
                           {formatPhone(r.phone)}
                         </span>
@@ -178,6 +237,25 @@ export function ImportContactsDialog({
                       Para clientes o miembros que quieres atender tú. Sus
                       mensajes llegan a la Bandeja sin que el agente conteste.
                       Aplica también a los que ya existían.
+                    </span>
+                  </span>
+                </label>
+
+                {/* 067 — Apagado a propósito: quien ya tiene lead NO se mueve,
+                    pero una lista de clientes viejos llenaría el embudo. */}
+                <label className="flex items-start gap-2 text-sm">
+                  <input
+                    type="checkbox"
+                    checked={crearLeads}
+                    onChange={(e) => setCrearLeads(e.target.checked)}
+                    className="mt-0.5 accent-primary"
+                  />
+                  <span>
+                    Meterlos al embudo como prospectos
+                    <span className="block text-[11px] text-text-3">
+                      Los pone en la primera etapa (Lead). A quien ya está en el
+                      Pipeline no lo mueve de su etapa. Déjalo apagado si es una
+                      lista de clientes.
                     </span>
                   </span>
                 </label>

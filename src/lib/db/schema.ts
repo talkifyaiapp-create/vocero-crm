@@ -178,6 +178,22 @@ export const contact = pgTable(
       enum: ["anuncio", "organico", "referido", "conocido", "otro"],
     }),
     /**
+     * 067 — Etiquetas libres de la organización: qué ES esta persona, no en qué
+     * punto del embudo está.
+     *
+     * El embudo es UNA sola dimensión (`lead.stage_id`) y una instancia tiene un
+     * solo tablero. "Cliente", "mayorista" o "producto A" no caben ahí sin
+     * inventar una columna por combinación, así que acababan dentro del nombre o
+     * en las notas. Esta es la segunda dimensión, y las dos se cruzan: una
+     * persona está en una etapa Y tiene varias etiquetas.
+     *
+     * Arreglo en la misma fila y no una tabla aparte: se leen y se escriben
+     * siempre junto al contacto, y una tabla de unión obligaría a un join en cada
+     * listado para algo que cabe aquí. Anulable: NULL = nadie la ha etiquetado,
+     * que no es lo mismo que una lista vacía y no obliga a backfill.
+     */
+    tags: jsonb("tags").$type<string[]>(),
+    /**
      * 027 — El agente no le responde a esta persona: clientes, miembros,
      * proveedores — gente a la que el dueño quiere atender él mismo.
      *

@@ -146,6 +146,12 @@ export type ContactDto = {
   source?: SourceDto;
   /** Prioridad del lead asociado; null si nadie la fijó. */
   priority?: PriorityValue | null;
+  /**
+   * 067 — Etiquetas libres de la organización. Segunda dimensión junto a la
+   * etapa: "qué es esta persona" (cliente, mayorista, producto A) frente a "en
+   * qué punto del embudo está". Varias por contacto, sin orden garantizado.
+   */
+  tags?: string[];
   /** Lo que se sabe del lead. `{}` mientras nadie haya calificado. */
   ficha?: FichaDto;
   /** 027 — El agente no le responde a esta persona: la atiende el dueño. */

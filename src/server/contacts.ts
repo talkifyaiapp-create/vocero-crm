@@ -21,6 +21,8 @@ export function serializeContact(
     archivedAt: c.archivedAt?.toISOString() ?? null,
     source: effectiveSource(c.source, llegoPorAnuncio),
     priority,
+    /** 067 — Etiquetas libres. Siempre arreglo: la UI pinta y filtra sin nulls. */
+    tags: (c.tags as string[] | null) ?? [],
     // Viaja siempre, aunque esté vacía: la pantalla necesita distinguir "aún
     // no la han llenado" de "este contacto no la trae".
     ficha: (c.ficha as FichaDto | null) ?? {},

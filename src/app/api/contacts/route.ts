@@ -24,6 +24,8 @@ export const GET = withAuth(async (session, req: Request) => {
   const url = new URL(req.url);
   const q = url.searchParams.get("q")?.trim();
   const stage = url.searchParams.get("stage")?.trim();
+  /** 067 — Etiqueta exacta, tal como la devuelve `GET /api/contacts/tags`. */
+  const tag = url.searchParams.get("tag")?.trim();
   const includeArchived = url.searchParams.get("archived") === "true";
 
   const db = getDb();
@@ -82,7 +84,13 @@ export const GET = withAuth(async (session, req: Request) => {
         schema.contact.organizationId,
         session.organizationId,
         search,
-        stageContactIds ? inArray(schema.contact.id, stageContactIds) : undefined
+        stageContactIds ? inArray(schema.contact.id, stageContactIds) : undefined,
+        // Contención de jsonb: solo hace falta que la etiqueta esté, no el
+        // arreglo completo. NULL (sin etiquetas) no casa con nada, que es lo
+        // que se espera.
+        tag
+          ? sql`${schema.contact.tags} @> ${JSON.stringify([tag])}::jsonb`
+          : undefined
       )
     )
     .orderBy(desc(schema.contact.updatedAt))
