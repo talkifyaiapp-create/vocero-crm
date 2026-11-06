@@ -23,6 +23,13 @@ import { Button, buttonVariants } from "@/components/ui/button";
 import { EmptyState } from "@/components/ui/empty-state";
 import { Input } from "@/components/ui/input";
 import { SOURCE_LABELS } from "@/server/contact-source";
+import {
+  TAMANOS_DE_PAGINA,
+  TAMANIO_POR_DEFECTO,
+  normalizarTamanio,
+  rangoDePagina,
+  type TamanioDePagina,
+} from "@/lib/paginacion";
 import { priorityRank } from "@/server/leads/priority";
 import { PriorityBadge } from "@/components/pipeline/priority-picker";
 import { ContactDetailDialog } from "./contact-detail-dialog";
@@ -40,6 +47,10 @@ export function ContactsClient() {
   const [tagFilter, setTagFilter] = useState("all");
   const [tagsDisponibles, setTagsDisponibles] = useState<string[]>([]);
   const [showArchived, setShowArchived] = useState(false);
+  // 067 — Paginación: cuántos hay en total, en qué página y de qué tamaño.
+  const [total, setTotal] = useState(0);
+  const [offset, setOffset] = useState(0);
+  const [porPagina, setPorPagina] = useState<TamanioDePagina>(TAMANIO_POR_DEFECTO);
   const [editing, setEditing] = useState<ContactDto | null>(null);
   const [creando, setCreando] = useState(false);
   const [importando, setImportando] = useState(false);
@@ -80,18 +91,25 @@ export function ContactsClient() {
     if (stage !== "all") params.set("stage", stage);
     if (tagFilter !== "all") params.set("tag", tagFilter);
     if (showArchived) params.set("archived", "true");
+    params.set("limit", String(porPagina));
+    params.set("offset", String(offset));
     const res = await fetch(`/api/contacts?${params}`).catch(() => null);
     if (!res?.ok) return;
-    const data = (await res.json()) as { contacts: ContactDto[] };
+    const data = (await res.json()) as {
+      contacts: ContactDto[];
+      total: number;
+    };
+    setTotal(data.total);
     // A quién llamar primero: alta arriba, sin prioridad al final. El orden lo
     // decide esta lista, no el servidor, porque es una preferencia de trabajo y
-    // no un dato del contacto.
+    // no un dato del contacto. Ordena DENTRO de la página: la paginación la
+    // decide el servidor (por fecha de actualización).
     setContacts(
       [...data.contacts].sort(
         (a, b) => priorityRank(a.priority ?? null) - priorityRank(b.priority ?? null)
       )
     );
-  }, [query, stage, tagFilter, showArchived]);
+  }, [query, stage, tagFilter, showArchived, porPagina, offset]);
 
   useEffect(() => {
     const t = setTimeout(() => void refetch(), 250);
@@ -114,6 +132,9 @@ export function ContactsClient() {
   if (tagFilter !== "all") exportParams.set("tag", tagFilter);
   if (showArchived) exportParams.set("archived", "true");
   const exportHref = `/api/contacts/export?${exportParams.toString()}`;
+
+  // 067 — Los números del pie («1–50 de 2.847», «3 de 57»).
+  const rango = rangoDePagina(total, offset, porPagina);
 
   return (
     <div className="flex h-full flex-col">
@@ -143,7 +164,7 @@ export function ContactsClient() {
             <input
               type="checkbox"
               checked={showArchived}
-              onChange={(e) => setShowArchived(e.target.checked)}
+              onChange={(e) => { setShowArchived(e.target.checked); setOffset(0); }}
               className="accent-primary"
             />
             Ver archivados
@@ -151,7 +172,7 @@ export function ContactsClient() {
           {stages.length > 0 && (
             <select
               value={stage}
-              onChange={(e) => setStage(e.target.value)}
+              onChange={(e) => { setStage(e.target.value); setOffset(0); }}
               aria-label="Filtrar por etapa del embudo"
               className="h-9 rounded-md border border-input bg-card px-2 text-sm"
             >
@@ -166,7 +187,7 @@ export function ContactsClient() {
           {tagsDisponibles.length > 0 && (
             <select
               value={tagFilter}
-              onChange={(e) => setTagFilter(e.target.value)}
+              onChange={(e) => { setTagFilter(e.target.value); setOffset(0); }}
               aria-label="Filtrar por etiqueta"
               className="h-9 rounded-md border border-input bg-card px-2 text-sm"
             >
@@ -185,7 +206,7 @@ export function ContactsClient() {
               placeholder="Buscar por nombre o teléfono…"
               aria-label="Buscar contacto"
               defaultValue=""
-              onChange={(e) => setQuery(e.target.value)}
+              onChange={(e) => { setQuery(e.target.value); setOffset(0); }}
               className="w-full pl-8 sm:w-72"
             />
           </div>
@@ -316,6 +337,60 @@ export function ContactsClient() {
           </ul>
         )}
       </div>
+
+      {/* 067 — El pie de la lista: cuántos hay, cuántos se ven y cómo pasar de
+          página. Antes la API cortaba en 200 sin decirlo, y con miles de
+          contactos el resto era inalcanzable. */}
+      {total > 0 && (
+        <footer className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2 border-t px-4 py-3 text-xs text-muted-foreground sm:px-6">
+          <p>
+            <strong className="text-foreground">
+              {rango.desde}–{rango.hasta}
+            </strong>{" "}
+            de <strong className="text-foreground">{total.toLocaleString("es-CO")}</strong>{" "}
+            {total === 1 ? "contacto" : "contactos"}
+          </p>
+          <div className="flex flex-wrap items-center gap-2">
+            <label className="flex items-center gap-1.5">
+              <span>Mostrar</span>
+              <select
+                value={porPagina}
+                onChange={(e) => {
+                  setPorPagina(normalizarTamanio(e.target.value));
+                  setOffset(0);
+                }}
+                aria-label="Contactos por página"
+                className="h-7 rounded-md border border-input bg-card px-1.5 text-xs"
+              >
+                {TAMANOS_DE_PAGINA.map((n) => (
+                  <option key={n} value={n}>
+                    {n}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <Button
+              variant="ghost"
+              size="sm"
+              disabled={offset === 0}
+              onClick={() => setOffset(Math.max(0, offset - porPagina))}
+            >
+              Anterior
+            </Button>
+            <span className="tabular-nums">
+              {rango.pagina} de {rango.paginas}
+            </span>
+            <Button
+              variant="ghost"
+              size="sm"
+              disabled={offset + porPagina >= total}
+              onClick={() => setOffset(offset + porPagina)}
+            >
+              Siguiente
+            </Button>
+          </div>
+        </footer>
+      )}
 
       {editing && (
         <ContactDetailDialog
