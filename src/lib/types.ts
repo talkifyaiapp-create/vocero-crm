@@ -10,6 +10,20 @@ export type ConversationDto = {
   /** 067 — Etiquetas del contacto, para filtrar la Bandeja por ellas. */
   tags: string[];
   stageName: string | null;
+  /**
+   * 067 — Ventana gratuita de mensajería de una conversación que nació de un
+   * anuncio. NO cambia qué se puede enviar (eso sigue siendo la ventana de
+   * atención de 24 h): dice cuándo Meta deja de cobrar. `null` cuando la
+   * conversación no vino de un anuncio o no hay nada que contar.
+   *
+   * Es una estimación construida sobre la regla publicada; la cuenta de Meta
+   * manda.
+   */
+  ventanaGratuita: {
+    estado: "por_abrir" | "abierta" | "expirada" | "perdida";
+    /** ISO: el plazo para responder, hasta cuándo es gratis, o cuándo terminó. */
+    limite: string | null;
+  } | null;
   aiEnabled: boolean;
   handoffAt: string | null;
   handoffReason: string | null;
